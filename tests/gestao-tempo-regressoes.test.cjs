@@ -1,0 +1,34 @@
+const fs=require('node:fs');
+const vm=require('node:vm');
+const path=require('node:path');
+const assert=require('node:assert/strict');
+const src=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+const group=src.match(/  const circumstance = \[[^\n]+\];\s*const importance\s*= \[[^\n]+\];\s*const urgency\s*= \[[^\n]+\];/);
+assert(group,'Missing Triade definitions');
+const compute=src.slice(src.indexOf('  function computeTotals() {'),src.indexOf('  // ═',src.indexOf('  function computePercentages(')));
+const check=src.slice(src.indexOf('  function determineMailProcessingOutcome('),src.indexOf('  // ═',src.indexOf('  function determineMailProcessingOutcome(')));
+const ctx={answers:[]};vm.createContext(ctx);vm.runInContext(group[0]+'\n'+compute+'\n'+check,ctx);
+const groups=vm.runInContext('({circumstance,importance,urgency})',ctx);
+const flat=[...groups.circumstance,...groups.importance,...groups.urgency];
+assert.deepEqual(flat.slice().sort((a,b)=>a-b),Array.from({length:18},(_,i)=>i+1));
+assert.deepEqual([groups.circumstance.length,groups.importance.length,groups.urgency.length],[6,6,6]);
+assert(groups.circumstance.includes(3));assert(!groups.urgency.includes(3));
+const score=(a)=>{ctx.answers=a;const t=ctx.computeTotals();return {totals:t,percentage:ctx.computePercentages(t)}};
+for(const value of [1,2,3,4,5]){
+ const {totals,percentage}=score(Array(18).fill(value));
+ assert.deepEqual([totals.A,totals.B,totals.C],[6*value,6*value,6*value]);
+ assert.deepEqual([percentage.A,percentage.B,percentage.C],[33.3,33.3,33.3]);
+}
+const vals=Array(18).fill(1);vals[2]=5;
+const {totals,percentage}=score(vals);
+assert.equal(totals.A,10);assert.equal(totals.C,6);assert.equal(percentage.A,45.5);
+const outcome=ctx.determineMailProcessingOutcome;
+assert.equal(outcome({ok:true,emailSent:true}).state,'accepted');
+assert.equal(outcome({ok:true,message:'Processamento concluído com sucesso.'}).state,'accepted');
+assert.equal(outcome({ok:true,message:'PDF salvo, mas houve falha no e-mail.'}).state,'failed');
+assert.equal(outcome({ok:true,emailSent:false}).state,'failed');
+assert.equal(outcome({ok:true}).state,'unconfirmed');
+assert.equal(outcome({ok:false,message:'Acesso negado'}).state,'failed');
+assert(src.includes('if (backendSubmissionAttempted) {'));
+assert(src.includes('if (autoSendInProgress || autoSendDone) return;'));
+console.log('PASS: Triade 6x3 scores, question 3 classification, 5 uniform cases, 6 delivery cases, no blind resubmission.');

@@ -495,7 +495,7 @@
     <section id="step-intro" class="step active">
       <div class="instructions">
         <p>O método de mapeamento utilizado nesta pesquisa é a Tríade do Tempo, criado por Christian Barbosa, autor do best-seller "A Tríade do Tempo". É um modelo prático de medir a produtividade inspirado em metodologias globais de gestão no tempo. Ela mapeia com precisão cirúrgica onde sua energia e foco estão sendo investidos diariamente.</p>
-        <p>Organizações e executivos que adotam esta metodologia, relatam ganhos expressivos de performance, com aumento de produtividade chegando a 50%. Agora, você iniciará o mesmo processo que líderes de alta performance utilizam para transformar agenda em resultado de alto impacto.</p>
+        <p>O objetivo deste mapeamento é identificar como você distribui seu tempo entre atividades importantes, urgentes e circunstanciais. Agora, você iniciará uma análise para refletir sobre sua rotina e definir prioridades para transformar agenda em resultado de alto impacto.</p>
         <p style="margin-top:10px; color:#0b63ce;">
           <strong style="font-family:Arial,sans-serif;">Instruções:</strong> Selecione a opção que reflete fielmente sua realidade atual: 1 (Nunca) à 5 (Sempre). Seja honesto para identificar a sua realidade atual. Não responda como gostaria de ser, mas como você realmente é hoje.
         </p>
@@ -583,8 +583,7 @@
             ✅ Relatório Gerado!
           </p>
           <p style="margin:6px 0 0; font-size:14px; color:#047857;">
-            Seu resultado completo em PDF foi enviado para seu e-mail.<br>
-            Equipe Instituto Impulso notificada.
+            <span id="delivery-message">Seu relatório foi processado. Confira seu e-mail e a pasta de spam.</span>
           </p>
         </div>
       </div>
@@ -1369,12 +1368,28 @@
     return { doc, pdfFileName: `GestaoNoTempo_${safeName}.pdf` };
   }
 
+  // Confirmação de processamento não é confirmação de entrega na caixa postal.
+  function determineMailProcessingOutcome(response) {
+    const message = String(response && response.message || "");
+    if (!response || response.ok === false || response.status === "error") {
+      return { state: "failed", message: message || "O servidor não confirmou o processamento." };
+    }
+    if (response.emailSent === false || /falha.{0,24}e-?mail|erro[_ -]?email|e-?mail.{0,24}n[aã]o enviad/i.test(message)) {
+      return { state: "failed", message: "Relatório processado, mas o servidor informou falha no envio. Contate o suporte antes de reenviar." };
+    }
+    if (response.emailSent === true || /processamento conclu[ií]do com sucesso/i.test(message)) {
+      return { state: "accepted", message: "Relatório enviado pelo servidor. Confira sua caixa de entrada e a pasta de spam." };
+    }
+    return { state: "unconfirmed", message: "Solicitação registrada, mas a entrega do e-mail não foi confirmada. Confira sua caixa de entrada e contate o suporte se necessário." };
+  }
+
   // ═══════════════════════════════════════════════════════════
   // ENVIO AUTOMÁTICO COM PDF
   // ═══════════════════════════════════════════════════════════
   async function autoSendWithPdf() {
     if (autoSendInProgress || autoSendDone) return;
     autoSendInProgress = true;
+    let backendSubmissionAttempted = false;
 
     try {
       setStatus("⏳ Gerando relatório e processando inteligência de dados...", "pending");
@@ -1429,16 +1444,29 @@
         sendEmail:         true
       };
 
+      backendSubmissionAttempted = true;
       const result = await postResultToScript(payload);
-      console.log("Resultado do servidor:", result);
+      const mailOutcome = determineMailProcessingOutcome(result);
 
-      await wait(800);
-      autoSendDone = true;
+      autoSendDone = true; // impede uma segunda gravação automática da mesma avaliação
+      if (mailOutcome.state === "failed") {
+        document.getElementById("final-success-message").style.display = "none";
+        setStatus("⚠️ " + mailOutcome.message, "error");
+        return;
+      }
+      document.getElementById("delivery-message").textContent = mailOutcome.message;
       document.getElementById("auto-send-status").textContent = "";
       document.getElementById("final-success-message").style.display = "block";
 
     } catch (e) {
       console.error("Falha autoSendWithPdf:", e);
+      if (backendSubmissionAttempted) {
+        // Um timeout após POST pode ocorrer mesmo com o registro e o e-mail já enviados.
+        // Repetir a operação cegamente causaria duplicidade de lançamentos e mensagens.
+        autoSendDone = true;
+        setStatus("⚠️ Não foi possível confirmar o processamento. Antes de tentar novamente, contate o suporte para evitar registros duplicados.", "error");
+        return;
+      }
       emailSendAttempts++;
       if (emailSendAttempts < MAX_EMAIL_ATTEMPTS) {
         setStatus(`⚠️ Tentando novamente (${emailSendAttempts}/${MAX_EMAIL_ATTEMPTS})... ${e.message || ""}`, "error");
@@ -1486,9 +1514,10 @@
     { v:5, t:"5. Sempre"       }
   ];
 
-  const circumstance = [1, 6, 9, 12, 15];
+  // Tríade do Tempo: 18 itens, 6 questões por esfera (referência original).
+  const circumstance = [1, 3, 6, 9, 12, 15];
   const importance   = [4, 7, 10, 11, 14, 17];
-  const urgency      = [2, 3, 5, 8, 13, 16, 18];
+  const urgency      = [2, 5, 8, 13, 16, 18];
 
   // ═══════════════════════════════════════════════════════════
   // ESTADO DO QUIZ
